@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+ <script type="text/javascript">
+var recognition;
+window.onload = function () {
+// インスタンスを作成
+recognition = new window.webkitSpeechRecognition();
+// 認識したい言語の設定
+recognition.lang = "ja";
+// 結果を受け取るためのonresult関数の定義
+recognition.onresult = function(event){
+  document.getElementById("output").innerHTML = "...";
+  for (var i = event.resultIndex; i < event.results.length; i++){
+    for (var j = 0; j < event.results[i].length; j++){
+      if (event.results[i][j].transcript == "こんにちは") {
+        document.getElementById("output").innerHTML = "ご用件は何でしょう？";
+      }
+    }
+  }
+};
+// その他
+recognition.continuous = true;
+recognition.maxAlternatives = 10;
+recognition.onspeechstart = function(){
+  document.getElementById("output").innerHTML = "話しかけてください。";
+};
+recognition.onerror = function(){
+  document.getElementById("output").innerHTML = "エラーが起きました。";
+};
+recognition.onnomatch = function(){
+  document.getElementById("output").innerHTML = "認識できませんでした。";
+};
+}
+ </script>
+</head>
+<body>
+<h1>Web Speech API</h1>
+<input type="button" value="音声認識開始" onclick="recognition.start();">
+<div id="output"></div>
+</body>
+</html>

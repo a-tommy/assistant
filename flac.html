@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+ <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, shrink-to-fit=no"/>
+ <script src="static/js/libflac4-1.3.2.js"></script>
+</head>
+<body>
+ <h1>Flac 録音</h1>
+ <div>
+  <button onclick="start()" id="start">開始</button>
+  <button onclick="end()" id="end" disabled>終了</button>
+ </div>
+ <script type="text/javascript"><!--
+   var localStream,source,scriptNode;
+   var startbutton = document.getElementById("start");
+   var endbutton = document.getElementById("end");
+   // getUserMediaとAudioContextを用意する
+   navigator.mediaDevices = navigator.mediaDevices || ((navigator.mozGetUserMedia || navigator.webkitGetUserMedia) ? {
+      getUserMedia: function(c) {
+        return new Promise(function(y, n) {
+          (navigator.mozGetUserMedia ||
+           navigator.webkitGetUserMedia).call(navigator, c, y, n);
+        });
+      }
+   } : null);
+   var AudioContext = window.AudioContext || window.webkitAudioContext;
+   var audioCtx = new AudioContext();
+   var start = function() {
+     // 音声のStreamを取得する
+     navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream) {
+       startbutton.disabled = true;
+       localStream = stream;
+       // alert(stream.getTracks()[0].label);
+       // Nodeを二つ用意
+       source = audioCtx.createMediaStreamSource(stream);
+       scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
+       scriptNode.onaudioprocess = onAudioProcess;
+       // それぞれのノードを接続
+       source.connect(scriptNode);
+       scriptNode.connect(audioCtx.destination);
+       // 終了ボタンを押せるように
+       endbutton.disabled = false;
+     }).catch(function(e) { alert("開始できません(" + e + ")。"); } );
+   };
+   var floatBuffer = new Array();
+   var onAudioProcess = function(e) {
+     var input = e.inputBuffer.getChannelData(0);
+     input.forEach(function(f){floatBuffer.push(f)});
+   };
+   var end = function() {
+     endbutton.disabled = true;
+     // 後片付け
+     localStream.getTracks().forEach(function(track) {
+        track.stop();
+     });
+     source.disconnect(scriptNode);
+     scriptNode.disconnect(audioCtx.destination);
+     // Flacでダウンロード
+     downloadAsFlac(floatBuffer,"test.flac")
+     // 開始ボタンを押せるように
+     floatBuffer = new Array();
+     startbutton.disabled = false;
+   };
+   // 以下Flacダウンロード用コード
+   function downloadAsFlac(floatBuffer,fileName) {
+     var flacParams = {
+       sample_rate   : audioCtx.sampleRate,
+       channels      : 1,
+       bps           : 16,
+       total_samples : floatBuffer.length,
+       compression_level : 5,
+       is_verify : true,
+     };
+     var uint32Buffer = new Uint32Array(floatBuffer.length);
+     var view = new DataView(uint32Buffer.buffer);
+     var offset = 0;
+     for (var i = 0; i < floatBuffer.length; i++){
+       view.setInt32(offset, floatBuffer[i] * 0x7FFF, true);
+       offset += 4;
+     }
+     var encData = [];
+     var result = encodeFlac(uint32Buffer, encData, flacParams);
+     var recLength = getLength(encData);
+     if(result.metaData){
+       addFLACMetaData(encData, result.metaData);
+     }
+     var samples = mergeBuffers(encData, recLength);
+     var blob = new Blob([samples],{ type: 'audio/flac' });
+     var a = document.createElement('a');
+     if (window.webkitURL) {
+       a.href = window.webkitURL.createObjectURL(blob);
+     } else {
+       a.href = window.URL.createObjectURL(blob);
+     }
+     a.download = fileName;
+     a.target = '_blank';
+     a.click();
+   }
+   function encodeFlac(buffer, recBuffers, flacParams){
+     var meta_data;
+     var flac_ok = 1;
+     function write_callback_fn(buffer, bytes, samples, current_frame){
+       recBuffers.push(buffer);
+     }
+     function metadata_callback_fn(data){
+       meta_data = data;
+     }
+     var flac_encoder = Flac.create_libflac_encoder(flacParams.sample_rate, flacParams.channels, flacParams.bps, flacParams.compression_level, flacParams.total_samples, flacParams.is_verify);
+     if (flac_encoder != 0){
+       var init_status = Flac.init_encoder_stream(flac_encoder, write_callback_fn, metadata_callback_fn, 0);
+       flac_ok &= init_status == 0;
+     } else {
+       var msg = 'Error initializing the decoder.';
+       return {error: msg, status: 1};
+     }
+     var flac_return = Flac.FLAC__stream_encoder_process_interleaved(flac_encoder, buffer, buffer.length);
+     if (flac_return != true){
+       console.log("Error: FLAC__stream_encoder_process_interleaved returned false. " + flac_return);
+     }
+     flac_ok &= Flac.FLAC__stream_encoder_finish(flac_encoder);
+     Flac.FLAC__stream_encoder_delete(flac_encoder);
+     return {metaData: meta_data, status: flac_ok};
+   }
+   function getLength(recBuffers){
+     var recLength = 0;
+     for(var i=recBuffers.length - 1; i >= 0; --i){
+       recLength += recBuffers[i].byteLength;
+     }
+     return recLength;
+   }
+   function mergeBuffers(channelBuffer, recordingLength){
+     var result = new Uint8Array(recordingLength);
+     var offset = 0;
+     var lng = channelBuffer.length;
+     for (var i = 0; i < lng; i++){
+       var buffer = channelBuffer[i];
+       result.set(buffer, offset);
+       offset += buffer.length;
+     }
+     return result;
+   }
+   function addFLACMetaData(chunks, metadata){
+     var offset = 4;
+     var data = chunks[0];//1st data chunk should contain FLAC identifier "fLaC"
+     if(data.length < 4 || String.fromCharCode.apply(null, data.subarray(0,4)) != "fLaC"){
+       console.error('Unknown data format: cannot add additional FLAC meta data to header');
+       return;
+     }
+     if(data.length == 4){
+       data = chunks[1];//get 2nd data chunk which should contain STREAMINFO meta-data block (and probably more)
+       offset = 0;	
+     }
+     var view = new DataView(data.buffer);
+     view.setUint8( 8 + offset, metadata.min_framesize >> 16, true);//24 bit
+     view.setUint8( 9 + offset, metadata.min_framesize >> 8, true);//24 bit
+     view.setUint8(10 + offset, metadata.min_framesize, true);//24 bit
+     view.setUint8(11 + offset, metadata.max_framesize >> 16, true);//24 bit
+     view.setUint8(12 + offset, metadata.max_framesize >> 8, true);//24 bit
+     view.setUint8(13 + offset, metadata.max_framesize, true);//24 bit
+     view.setUint8(18 + offset, metadata.total_samples >> 24, true);//36 bit
+     view.setUint8(19 + offset, metadata.total_samples >> 16, true);//36 bit
+     view.setUint8(20 + offset, metadata.total_samples >> 8, true);//36 bit
+     view.setUint8(21, metadata.total_samples, true);//36 bit
+     writeMd5(view, 22 + offset, metadata.md5sum);//16 * 8 bit
+   }
+   function writeMd5(view, offset, str) {
+     var index;
+     for(var i = 0; i < str.length/2; ++i) {
+       index =  i * 2;
+       view.setUint8(i + offset, parseInt(str.substring(index, index + 2), 16));
+     }
+   }
+--></script>
+</body>
+</html>

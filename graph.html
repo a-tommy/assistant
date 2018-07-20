@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+ <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, shrink-to-fit=no"/>
+ <script src="https://d3js.org/d3.v5.min.js"></script>
+</head>
+<body>
+ <h1>Media Capture and Stream API</h1>
+ <div>
+  <button onclick="start()" id="start">開始</button>
+  <button onclick="end()" id="end" disabled>終了</button>
+ </div>
+ <div><div id="graph"></div></div>
+ <script type="text/javascript"><!--
+   var localStream,source,scriptNode;
+   var startbutton = document.getElementById("start");
+   var endbutton = document.getElementById("end");
+   // getUserMediaとAudioContextを準備する
+   navigator.mediaDevices = navigator.mediaDevices || ((navigator.mozGetUserMedia || navigator.webkitGetUserMedia) ? {
+      getUserMedia: function(c) {
+        return new Promise(function(y, n) {
+          (navigator.mozGetUserMedia ||
+           navigator.webkitGetUserMedia).call(navigator, c, y, n);
+        });
+      }
+   } : null);
+   var AudioContext = window.AudioContext || window.webkitAudioContext;
+   var audioCtx = new AudioContext();
+   var start = function() {
+     // 音声のStreamを取得する
+     navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream) {
+       startbutton.disabled = true;
+       localStream = stream;
+       // alert(stream.getTracks()[0].label);
+       // Nodeを二つ用意
+       source = audioCtx.createMediaStreamSource(stream);
+       scriptNode = audioCtx.createScriptProcessor(4096, 1, 1);
+       scriptNode.onaudioprocess = onAudioProcess;
+       // それぞれのノードを接続
+       source.connect(scriptNode);
+       scriptNode.connect(audioCtx.destination);
+       // 終了ボタンを押せるように
+       endbutton.disabled = false;
+     }).catch(function(e) { alert("開始できません(" + e + ")。"); } );
+   };
+   // 音声入力をグラフ用配列に入れる
+   var graphSize = 8000;
+   var graphdata = new Array(graphSize).fill(0);
+   var onAudioProcess = function(e) {
+       var input = e.inputBuffer.getChannelData(0);
+       graphdata = graphdata.slice(input.length)
+       input.forEach(function(f){graphdata.push(f)});
+       // 入力をそのまま出力する
+       // var output = e.outputBuffer.getChannelData(0);
+       // for (var i=0;i<input.length;i++) {
+       //   output[i] = input[i];
+       // }
+   };
+   // 後片付け
+   var end = function() {
+       endbutton.disabled = true;
+       localStream.getTracks().forEach(function(track) {
+          track.stop();
+       });
+       source.disconnect(scriptNode);
+       scriptNode.disconnect(audioCtx.destination);
+       startbutton.disabled = false;
+   };
+   // 以下 グラフ描画用コード
+   var graphInit = function () {
+     var width = 300;
+     var height = 200;
+     var xmin = 0;
+     var xmax = graphSize;
+     var ymin = -1;
+     var ymax = 1;
+     svg = d3.select("#graph")
+             .append("svg")
+             .attr("width", width)
+             .attr("height", height);
+     var xScale = d3.scaleLinear().domain([xmin, xmax]).range([0,width]);
+     var yScale = d3.scaleLinear().domain([ymax, ymin]).range([0,height]);
+     var xAxis = d3.axisBottom(xScale).tickSize(0).tickFormat("");
+     svg.append("g")
+        .attr("class", "axis")
+        .attr("transform", "translate(0," + yScale(0) + ")")
+        .call(xAxis);
+     d3line = d3.line()
+                .x(function(d,i){return xScale(i);})
+                .y(function(d,i){return yScale(d);});
+     var pathg = svg.append("g")
+     pathg.append("path")
+          .data([graphdata])
+          .style("stroke-width", 1)
+          .style("stroke", "steelblue")
+          .style("fill", "none");
+     setInterval(function () {
+       pathg.selectAll("path")
+            .data([graphdata])
+            .attr("d", d3line);
+     }, 100);
+   };
+   graphInit();
+ --></script>
+</body>
+</html>

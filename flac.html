@@ -94,7 +94,9 @@
      }
      a.download = fileName;
      a.target = '_blank';
+     document.body.appendChild(a);
      a.click();
+     document.body.removeChild(a);
    }
    function encodeFlac(buffer, recBuffers, flacParams){
      var meta_data;

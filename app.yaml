@@ -1,0 +1,9 @@
+runtime: go
+api_version: go1
+
+handlers:
+- url: /libflac4\-1\.3\.2\.js
+  static_files: libflac4-1.3.2.js
+  upload: libflac4\-1\.3\.2\.js
+- url: /.*
+  script: _go_app
